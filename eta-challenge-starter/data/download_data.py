@@ -108,7 +108,8 @@ def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def split_arrow(table: pa.Table) -> tuple[pa.Table, pa.Table]:
     """Split Arrow table on timestamp without converting to pandas."""
     ts_col = table.column("_ts")
-    mask = pc.less(ts_col, pa.scalar(CUTOFF.isoformat()))
+    cutoff_scalar = pa.scalar(CUTOFF, type=ts_col.type)
+    mask = pc.less(ts_col, cutoff_scalar)
     train = table.filter(mask).drop(["_ts"])
     dev = table.filter(pc.invert(mask)).drop(["_ts"])
     return train, dev
