@@ -83,7 +83,11 @@ def clean(paths: list[Path]) -> pd.DataFrame:
         clean_frames.append(clean_df.loc[mask])
     
     print("  final concat...", flush=True)
-    return pd.concat(clean_frames, ignore_index=True).reset_index(drop=True)
+    result = clean_frames[0]
+    for i, df in enumerate(clean_frames[1:], 2):
+        print(f"    combining {i}/{len(clean_frames)}...", flush=True)
+        result = pd.concat([result, df], ignore_index=True)
+    return result.reset_index(drop=True)
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
