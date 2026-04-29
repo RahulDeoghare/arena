@@ -17,6 +17,8 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
 MONTHS = [f"2023-{m:02d}" for m in range(1, 13)]
@@ -83,11 +85,9 @@ def clean(paths: list[Path]) -> pd.DataFrame:
         clean_frames.append(clean_df.loc[mask])
     
     print("  final concat...", flush=True)
-    result = clean_frames[0]
-    for i, df in enumerate(clean_frames[1:], 2):
-        print(f"    combining {i}/{len(clean_frames)}...", flush=True)
-        result = pd.concat([result, df], ignore_index=True)
-    return result.reset_index(drop=True)
+    tables = [pa.Table.from_pandas(df) for df in clean_frames]
+    result_table = pa.concat_tables(tables)
+    return result_table.to_pandas()
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
