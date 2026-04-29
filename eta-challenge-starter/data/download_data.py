@@ -42,7 +42,8 @@ def download_month(yyyymm: str) -> Path:
 
 def clean(paths: list[Path]) -> pd.DataFrame:
     frames = []
-    for p in paths:
+    for i, p in enumerate(paths, 1):
+        print(f"  processing {i}/{len(paths)}: {p.name}")
         df = pd.read_parquet(
             p,
             columns=[
