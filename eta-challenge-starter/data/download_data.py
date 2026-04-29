@@ -43,9 +43,11 @@ def download_month(yyyymm: str) -> Path:
 
 
 def clean(paths: list[Path]) -> pd.DataFrame:
-    frames = []
+    print("  concatenating & filtering...", flush=True)
+    result_table = None
+    
     for i, p in enumerate(paths, 1):
-        print(f"  processing {i}/{len(paths)}: {p.name}", flush=True)
+        print(f"    processing {i}/{len(paths)}: {p.name}", flush=True)
         df = pd.read_parquet(
             p,
             columns=[
@@ -56,12 +58,8 @@ def clean(paths: list[Path]) -> pd.DataFrame:
                 "passenger_count",
             ],
         )
-        frames.append(df)
-    
-    print("  concatenating & filtering...", flush=True)
-    clean_frames = []
-    for i, df in enumerate(frames, 1):
-        print(f"    transforming {i}/{len(frames)}...", flush=True)
+        
+        print(f"      transforming...", flush=True)
         duration = (
             df["tpep_dropoff_datetime"] - df["tpep_pickup_datetime"]
         ).dt.total_seconds()
@@ -82,11 +80,20 @@ def clean(paths: list[Path]) -> pd.DataFrame:
             & (clean_df["dropoff_zone"].between(1, 265))
             & (clean_df["_ts"].dt.year == 2023)
         )
-        clean_frames.append(clean_df.loc[mask])
+        clean_df = clean_df.loc[mask]
+        
+        print(f"      converting to arrow...", flush=True)
+        table = pa.Table.from_pandas(clean_df)
+        
+        if result_table is None:
+            result_table = table
+        else:
+            print(f"      merging...", flush=True)
+            result_table = pa.concat_tables([result_table, table])
+        
+        del df, clean_df, table  # Free memory immediately
     
-    print("  final concat...", flush=True)
-    tables = [pa.Table.from_pandas(df) for df in clean_frames]
-    result_table = pa.concat_tables(tables)
+    print("  converting back to pandas...", flush=True)
     return result_table.to_pandas()
 
 
