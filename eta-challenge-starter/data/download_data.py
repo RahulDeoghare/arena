@@ -55,30 +55,35 @@ def clean(paths: list[Path]) -> pd.DataFrame:
             ],
         )
         frames.append(df)
-    print("  concatenating & filtering... (this takes a minute)", flush=True)
-    df = pd.concat(frames, ignore_index=True)
+    
+    print("  concatenating & filtering...", flush=True)
+    clean_frames = []
+    for i, df in enumerate(frames, 1):
+        print(f"    transforming {i}/{len(frames)}...", flush=True)
+        duration = (
+            df["tpep_dropoff_datetime"] - df["tpep_pickup_datetime"]
+        ).dt.total_seconds()
 
-    duration = (
-        df["tpep_dropoff_datetime"] - df["tpep_pickup_datetime"]
-    ).dt.total_seconds()
+        clean_df = pd.DataFrame({
+            "pickup_zone":      df["PULocationID"].astype("int32"),
+            "dropoff_zone":     df["DOLocationID"].astype("int32"),
+            "requested_at":     df["tpep_pickup_datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "passenger_count":  df["passenger_count"].fillna(1).astype("int8"),
+            "duration_seconds": duration.astype("float64"),
+            "_ts":              df["tpep_pickup_datetime"],
+        })
 
-    clean_df = pd.DataFrame({
-        "pickup_zone":      df["PULocationID"].astype("int32"),
-        "dropoff_zone":     df["DOLocationID"].astype("int32"),
-        "requested_at":     df["tpep_pickup_datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S"),
-        "passenger_count":  df["passenger_count"].fillna(1).astype("int8"),
-        "duration_seconds": duration.astype("float64"),
-        "_ts":              df["tpep_pickup_datetime"],
-    })
-
-    mask = (
-        (clean_df["duration_seconds"] >= 30)
-        & (clean_df["duration_seconds"] <= 3 * 3600)
-        & (clean_df["pickup_zone"].between(1, 265))
-        & (clean_df["dropoff_zone"].between(1, 265))
-        & (clean_df["_ts"].dt.year == 2023)
-    )
-    return clean_df.loc[mask].reset_index(drop=True)
+        mask = (
+            (clean_df["duration_seconds"] >= 30)
+            & (clean_df["duration_seconds"] <= 3 * 3600)
+            & (clean_df["pickup_zone"].between(1, 265))
+            & (clean_df["dropoff_zone"].between(1, 265))
+            & (clean_df["_ts"].dt.year == 2023)
+        )
+        clean_frames.append(clean_df.loc[mask])
+    
+    print("  final concat...", flush=True)
+    return pd.concat(clean_frames, ignore_index=True).reset_index(drop=True)
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
