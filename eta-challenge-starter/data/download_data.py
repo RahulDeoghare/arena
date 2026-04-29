@@ -43,7 +43,7 @@ def download_month(yyyymm: str) -> Path:
 def clean(paths: list[Path]) -> pd.DataFrame:
     frames = []
     for i, p in enumerate(paths, 1):
-        print(f"  processing {i}/{len(paths)}: {p.name}")
+        print(f"  processing {i}/{len(paths)}: {p.name}", flush=True)
         df = pd.read_parquet(
             p,
             columns=[
@@ -55,6 +55,7 @@ def clean(paths: list[Path]) -> pd.DataFrame:
             ],
         )
         frames.append(df)
+    print("  concatenating & filtering... (this takes a minute)", flush=True)
     df = pd.concat(frames, ignore_index=True)
 
     duration = (
@@ -92,21 +93,21 @@ def main() -> None:
 
     print("\nStep 2: clean & combine")
     df = clean(paths)
-    print(f"  cleaned: {len(df):,} trips")
+    print(f"  cleaned: {len(df):,} trips", flush=True)
 
     print("\nStep 3: train/dev split")
     train, dev = split(df)
     train.to_parquet(DATA_DIR / "train.parquet", index=False)
     dev.to_parquet(DATA_DIR / "dev.parquet", index=False)
-    print(f"  train.parquet: {len(train):,} rows")
-    print(f"  dev.parquet:   {len(dev):,} rows")
+    print(f"  train.parquet: {len(train):,} rows", flush=True)
+    print(f"  dev.parquet:   {len(dev):,} rows", flush=True)
 
     print("\nStep 4: 1M-row training sample")
     sample = train.sample(n=min(SAMPLE_SIZE, len(train)), random_state=42)
     sample.reset_index(drop=True).to_parquet(
         DATA_DIR / "sample_1M.parquet", index=False
     )
-    print(f"  sample_1M.parquet: {len(sample):,} rows")
+    print(f"  sample_1M.parquet: {len(sample):,} rows", flush=True)
 
     print("\nDone. Next: `python baseline.py`")
 
