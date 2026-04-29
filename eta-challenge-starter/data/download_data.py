@@ -19,6 +19,7 @@ from urllib.request import urlretrieve
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pyarrow.compute as pc
 
 BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data"
 MONTHS = [f"2023-{m:02d}" for m in range(1, 13)]
@@ -42,7 +43,8 @@ def download_month(yyyymm: str) -> Path:
     return out
 
 
-def clean(paths: list[Path]) -> pd.DataFrame:
+def clean(paths: list[Path]) -> pa.Table:
+    """Process and clean all monthly parquets, returning Arrow table."""
     print("  concatenating & filtering...", flush=True)
     result_table = None
     
@@ -93,8 +95,8 @@ def clean(paths: list[Path]) -> pd.DataFrame:
         
         del df, clean_df, table  # Free memory immediately
     
-    print("  converting back to pandas...", flush=True)
-    return result_table.to_pandas()
+    print(f"  cleaned: {result_table.num_rows:,} rows", flush=True)
+    return result_table
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -103,23 +105,39 @@ def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return train, dev
 
 
+def split_arrow(table: pa.Table) -> tuple[pa.Table, pa.Table]:
+    """Split Arrow table on timestamp without converting to pandas."""
+    ts_col = table.column("_ts")
+    mask = pc.less(ts_col, pa.scalar(CUTOFF.isoformat()))
+    train = table.filter(mask).drop(["_ts"])
+    dev = table.filter(pc.invert(mask)).drop(["_ts"])
+    return train, dev
+
+
 def main() -> None:
     print("Step 1: download monthly parquets")
     paths = [download_month(m) for m in MONTHS]
 
     print("\nStep 2: clean & combine")
-    df = clean(paths)
-    print(f"  cleaned: {len(df):,} trips", flush=True)
+    result_table = clean(paths)
 
     print("\nStep 3: train/dev split")
-    train, dev = split(df)
-    train.to_parquet(DATA_DIR / "train.parquet", index=False)
-    dev.to_parquet(DATA_DIR / "dev.parquet", index=False)
-    print(f"  train.parquet: {len(train):,} rows", flush=True)
-    print(f"  dev.parquet:   {len(dev):,} rows", flush=True)
+    train_table, dev_table = split_arrow(result_table)
+    print(f"  train: {train_table.num_rows:,} rows", flush=True)
+    print(f"  dev:   {dev_table.num_rows:,} rows", flush=True)
+    
+    print("  writing train.parquet...", flush=True)
+    pq.write_table(train_table, DATA_DIR / "train.parquet")
+    print(f"  train.parquet written", flush=True)
+    
+    print("  writing dev.parquet...", flush=True)
+    pq.write_table(dev_table, DATA_DIR / "dev.parquet")
+    print(f"  dev.parquet written", flush=True)
 
     print("\nStep 4: 1M-row training sample")
-    sample = train.sample(n=min(SAMPLE_SIZE, len(train)), random_state=42)
+    print("  converting train to pandas for sampling...", flush=True)
+    train_df = train_table.to_pandas()
+    sample = train_df.sample(n=min(SAMPLE_SIZE, len(train_df)), random_state=42)
     sample.reset_index(drop=True).to_parquet(
         DATA_DIR / "sample_1M.parquet", index=False
     )
