@@ -54,15 +54,20 @@ def main() -> None:
             )
 
     print("Loading data...")
-    train = pd.read_parquet(train_path)
-    dev = pd.read_parquet(dev_path)
-    print(f"  train: {len(train):,} rows")
-    print(f"  dev:   {len(dev):,} rows")
+    print("  loading train.parquet...", flush=True)
+    train = pd.read_parquet(train_path, columns=["requested_at", "pickup_zone", "dropoff_zone", "passenger_count", "duration_seconds"])
+    print(f"    train: {len(train):,} rows", flush=True)
+    
+    print("  loading dev.parquet...", flush=True)
+    dev = pd.read_parquet(dev_path, columns=["requested_at", "pickup_zone", "dropoff_zone", "passenger_count", "duration_seconds"])
+    print(f"    dev:   {len(dev):,} rows", flush=True)
 
+    print("Feature engineering...", flush=True)
     X_train = engineer_features(train)
     y_train = train["duration_seconds"].to_numpy()
     X_dev = engineer_features(dev)
     y_dev = dev["duration_seconds"].to_numpy()
+    print("  done", flush=True)
 
     print("\nTraining XGBoost...")
     model = xgb.XGBRegressor(
@@ -77,15 +82,15 @@ def main() -> None:
     )
     t0 = time.time()
     model.fit(X_train, y_train, verbose=False)
-    print(f"  trained in {time.time() - t0:.0f}s")
+    print(f"  trained in {time.time() - t0:.0f}s", flush=True)
 
     preds = model.predict(X_dev)
     mae = float(np.mean(np.abs(preds - y_dev)))
-    print(f"\nDev MAE: {mae:.1f} seconds")
+    print(f"\nDev MAE: {mae:.1f} seconds", flush=True)
 
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(model, f)
-    print(f"Saved model to {MODEL_PATH}")
+    print(f"Saved model to {MODEL_PATH}", flush=True)
 
 
 if __name__ == "__main__":
