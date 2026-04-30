@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import pandas as pd
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
@@ -29,6 +30,7 @@ RAW_DIR = DATA_DIR / "raw"
 
 CUTOFF = pd.Timestamp("2023-12-18")   # dev = last ~2 weeks of Dec
 SAMPLE_SIZE = 1_000_000
+CACHE_FILE = DATA_DIR / ".cache_cleaned.parquet"
 
 
 def download_month(yyyymm: str) -> Path:
@@ -116,11 +118,20 @@ def split_arrow(table: pa.Table) -> tuple[pa.Table, pa.Table]:
 
 
 def main() -> None:
-    print("Step 1: download monthly parquets")
-    paths = [download_month(m) for m in MONTHS]
+    # Check if we can skip cleaning steps
+    if CACHE_FILE.exists():
+        print("Step 1-2: loading cached cleaned data")
+        result_table = pq.read_table(CACHE_FILE)
+        print(f"  loaded: {result_table.num_rows:,} rows", flush=True)
+    else:
+        print("Step 1: download monthly parquets")
+        paths = [download_month(m) for m in MONTHS]
 
-    print("\nStep 2: clean & combine")
-    result_table = clean(paths)
+        print("\nStep 2: clean & combine")
+        result_table = clean(paths)
+        print(f"  caching cleaned data...", flush=True)
+        pq.write_table(result_table, CACHE_FILE)
+        print(f"  cache saved", flush=True)
 
     print("\nStep 3: train/dev split")
     train_table, dev_table = split_arrow(result_table)
@@ -136,13 +147,13 @@ def main() -> None:
     print(f"  dev.parquet written", flush=True)
 
     print("\nStep 4: 1M-row training sample")
-    print("  converting train to pandas for sampling...", flush=True)
-    train_df = train_table.to_pandas()
-    sample = train_df.sample(n=min(SAMPLE_SIZE, len(train_df)), random_state=42)
-    sample.reset_index(drop=True).to_parquet(
-        DATA_DIR / "sample_1M.parquet", index=False
-    )
-    print(f"  sample_1M.parquet: {len(sample):,} rows", flush=True)
+    print("  sampling from Arrow table...", flush=True)
+    n_samples = min(SAMPLE_SIZE, train_table.num_rows)
+    sample_indices = np.random.RandomState(42).choice(train_table.num_rows, size=n_samples, replace=False)
+    sample_table = train_table.take(sample_indices)
+    sample_df = sample_table.to_pandas()
+    sample_df.to_parquet(DATA_DIR / "sample_1M.parquet", index=False)
+    print(f"  sample_1M.parquet: {len(sample_df):,} rows", flush=True)
 
     print("\nDone. Next: `python baseline.py`")
 
