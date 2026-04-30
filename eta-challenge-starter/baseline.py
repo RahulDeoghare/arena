@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import xgboost as xgb
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -31,17 +32,41 @@ MODEL_PATH = Path(__file__).parent / "model.pkl"
 FEATURES = ["pickup_zone", "dropoff_zone", "hour", "dow", "month", "passenger_count"]
 
 
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Turn raw request columns into the 6 model features."""
-    ts = pd.to_datetime(df["requested_at"])
-    return pd.DataFrame({
-        "pickup_zone":     df["pickup_zone"].astype("int32"),
-        "dropoff_zone":    df["dropoff_zone"].astype("int32"),
-        "hour":            ts.dt.hour.astype("int8"),
-        "dow":             ts.dt.dayofweek.astype("int8"),
-        "month":           ts.dt.month.astype("int8"),
-        "passenger_count": df["passenger_count"].astype("int8"),
-    })[FEATURES]
+def load_and_prepare_data(path: Path, batch_size: int = 1_000_000) -> tuple[np.ndarray, np.ndarray]:
+    """Load parquet file in batches and prepare features/labels."""
+    print(f"    reading {path.name}...", flush=True)
+    
+    features_list = []
+    labels_list = []
+    
+    parquet_file = pq.ParquetFile(path)
+    num_batches = parquet_file.num_row_groups
+    
+    for i in range(num_batches):
+        print(f"      batch {i+1}/{num_batches}...", flush=True)
+        table = parquet_file.read_row_group(i)
+        df = table.to_pandas()
+        
+        # Engineer features
+        ts = pd.to_datetime(df["requested_at"])
+        features = pd.DataFrame({
+            "pickup_zone":     df["pickup_zone"].astype("int32"),
+            "dropoff_zone":    df["dropoff_zone"].astype("int32"),
+            "hour":            ts.dt.hour.astype("int8"),
+            "dow":             ts.dt.dayofweek.astype("int8"),
+            "month":           ts.dt.month.astype("int8"),
+            "passenger_count": df["passenger_count"].astype("int8"),
+        })[FEATURES]
+        
+        features_list.append(features.to_numpy())
+        labels_list.append(df["duration_seconds"].to_numpy())
+        
+        del df, features, ts  # Free memory
+    
+    X = np.vstack(features_list)
+    y = np.concatenate(labels_list)
+    print(f"      total: {len(X):,} rows", flush=True)
+    return X, y
 
 
 def main() -> None:
@@ -53,21 +78,9 @@ def main() -> None:
                 f"Missing {p.name}. Run `python data/download_data.py` first."
             )
 
-    print("Loading data...")
-    print("  loading train.parquet...", flush=True)
-    train = pd.read_parquet(train_path, columns=["requested_at", "pickup_zone", "dropoff_zone", "passenger_count", "duration_seconds"])
-    print(f"    train: {len(train):,} rows", flush=True)
-    
-    print("  loading dev.parquet...", flush=True)
-    dev = pd.read_parquet(dev_path, columns=["requested_at", "pickup_zone", "dropoff_zone", "passenger_count", "duration_seconds"])
-    print(f"    dev:   {len(dev):,} rows", flush=True)
-
-    print("Feature engineering...", flush=True)
-    X_train = engineer_features(train)
-    y_train = train["duration_seconds"].to_numpy()
-    X_dev = engineer_features(dev)
-    y_dev = dev["duration_seconds"].to_numpy()
-    print("  done", flush=True)
+    print("Loading and preparing data...", flush=True)
+    X_train, y_train = load_and_prepare_data(train_path)
+    X_dev, y_dev = load_and_prepare_data(dev_path)
 
     print("\nTraining XGBoost...")
     model = xgb.XGBRegressor(
