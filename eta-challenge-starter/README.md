@@ -111,6 +111,8 @@ git clone https://github.com/gobblecube-hiring/arena
 cd arena/eta-challenge-starter
 
 python -m venv .venv && source .venv/bin/activate
+OR
+python3 -m venv venv_prod && source venv_prod/bin/activate
 pip install -r requirements.txt
 
 # ~500 MB download, one-time
