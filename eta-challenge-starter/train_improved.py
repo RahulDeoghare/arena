@@ -89,12 +89,12 @@ def engineer_features_df(df: pd.DataFrame) -> pd.DataFrame:
     return features[NUMERIC_FEATURES]  # Ensure column order
 
 
-def load_and_prepare_data(path: Path, batch_size: int = 1_000_000) -> Tuple[pd.DataFrame, np.ndarray]:
-    """Load parquet file in batches and prepare features/labels."""
+def load_and_prepare_data(path: Path, batch_size: int = 1_000_000) -> Tuple[np.ndarray, np.ndarray]:
+    """Load parquet file in batches and prepare features/labels directly as numpy."""
     print(f"    reading {path.name}...", flush=True)
     
-    dfs = []
-    labels = []
+    X_list = []
+    y_list = []
     
     parquet_file = pq.ParquetFile(path)
     num_batches = parquet_file.num_row_groups
@@ -106,24 +106,27 @@ def load_and_prepare_data(path: Path, batch_size: int = 1_000_000) -> Tuple[pd.D
         
         # Feature engineering
         features_df = engineer_features_df(df)
-        dfs.append(features_df)
-        labels.append(df["duration_seconds"].to_numpy())
+        X_batch = features_df.values.astype('float32')
+        y_batch = df["duration_seconds"].to_numpy()
         
-        del df, features_df
+        X_list.append(X_batch)
+        y_list.append(y_batch)
+        
+        del df, features_df, X_batch, y_batch
     
-    X = pd.concat(dfs, ignore_index=True)
-    y = np.concatenate(labels)
+    X = np.vstack(X_list)
+    y = np.concatenate(y_list)
     print(f"      total: {len(X):,} rows", flush=True)
     
     return X, y
 
 
-def remove_outliers(X: pd.DataFrame, y: np.ndarray, percentile: float = 98) -> Tuple[pd.DataFrame, np.ndarray]:
+def remove_outliers(X: np.ndarray, y: np.ndarray, percentile: float = 98) -> Tuple[np.ndarray, np.ndarray]:
     """Remove trips with extreme durations."""
     threshold = np.percentile(y, percentile)
     mask = y <= threshold
     print(f"    removed {(~mask).sum():,} outlier trips (>{threshold:.0f}s)")
-    return X[mask].reset_index(drop=True), y[mask]
+    return X[mask], y[mask]
 
 
 def main() -> None:
@@ -144,11 +147,10 @@ def main() -> None:
     print(f"  train: {len(y_train):,} samples, mean duration: {y_train.mean():.0f}s")
     print(f"  dev:   {len(y_dev):,} samples, mean duration: {y_dev.mean():.0f}s")
 
-    print("\nPreparing training features...", flush=True)
-    X_train_np = X_train.values.astype('float32')
-    X_dev_np = X_dev.values.astype('float32')
-    
-    print(f"  {X_train_np.shape[1]} features: {', '.join(NUMERIC_FEATURES)}")
+    print("\nData shape:", flush=True)
+    print(f"  X_train: {X_train.shape}")
+    print(f"  X_dev:   {X_dev.shape}")
+    print(f"  {X_train.shape[1]} features: {', '.join(NUMERIC_FEATURES)}")
 
     # ============ Model 1: LightGBM (often superior to XGBoost for tabular data) ============
     print("\nTraining LightGBM model...", flush=True)
@@ -167,10 +169,10 @@ def main() -> None:
         metric='mae',
     )
     t0 = time.time()
-    lgb_model.fit(X_train_np, y_train, eval_set=[(X_dev_np, y_dev)], callbacks=[lgb.early_stopping(50)])
+    lgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)], callbacks=[lgb.early_stopping(50)])
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
-    lgb_preds_dev = lgb_model.predict(X_dev_np)
+    lgb_preds_dev = lgb_model.predict(X_dev)
 
     # ============ Model 2: XGBoost (tuned for better performance) ============
     print("\nTraining XGBoost model...", flush=True)
@@ -185,10 +187,10 @@ def main() -> None:
         random_state=42,
     )
     t0 = time.time()
-    xgb_model.fit(X_train_np, y_train, verbose=False)
+    xgb_model.fit(X_train, y_train, verbose=False)
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
-    xgb_preds_dev = xgb_model.predict(X_dev_np)
+    xgb_preds_dev = xgb_model.predict(X_dev)
 
     # ============ Ensemble: weighted average of both models ============
     print("\nCreating ensemble...", flush=True)
