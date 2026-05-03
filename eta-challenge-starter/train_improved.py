@@ -31,6 +31,7 @@ from sklearn.preprocessing import StandardScaler
 
 DATA_DIR = Path(__file__).parent / "data"
 MODEL_PATH = Path(__file__).parent / "model.pkl"
+CACHE_PATH = Path(__file__).parent / "data_cache.pkl"
 
 # US holidays in 2023
 HOLIDAYS_2023 = {
@@ -129,6 +130,31 @@ def remove_outliers(X: np.ndarray, y: np.ndarray, percentile: float = 98) -> Tup
     return X[mask], y[mask]
 
 
+def load_or_prepare_data(train_path: Path, dev_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load from cache if exists, otherwise prepare and cache."""
+    if CACHE_PATH.exists():
+        print("Loading cleaned data from cache...", flush=True)
+        with open(CACHE_PATH, "rb") as f:
+            X_train, y_train, X_dev, y_dev = pickle.load(f)
+        print(f"  X_train: {X_train.shape}, X_dev: {X_dev.shape}", flush=True)
+        return X_train, y_train, X_dev, y_dev
+    
+    # Load and prepare data
+    print("Loading and preparing data...", flush=True)
+    X_train, y_train = load_and_prepare_data(train_path)
+    X_dev, y_dev = load_and_prepare_data(dev_path)
+    
+    print("\nCleaning data...", flush=True)
+    X_train, y_train = remove_outliers(X_train, y_train, percentile=98)
+    
+    # Save to cache
+    print(f"Caching cleaned data to {CACHE_PATH}...", flush=True)
+    with open(CACHE_PATH, "wb") as f:
+        pickle.dump((X_train, y_train, X_dev, y_dev), f)
+    
+    return X_train, y_train, X_dev, y_dev
+
+
 def main() -> None:
     train_path = DATA_DIR / "train.parquet"
     dev_path = DATA_DIR / "dev.parquet"
@@ -136,13 +162,7 @@ def main() -> None:
         if not p.exists():
             raise SystemExit(f"Missing {p.name}. Run `python data/download_data.py` first.")
 
-    print("Loading and preparing data...", flush=True)
-    X_train, y_train = load_and_prepare_data(train_path)
-    X_dev, y_dev = load_and_prepare_data(dev_path)
-
-    print("\nCleaning data...", flush=True)
-    # Remove very long trips (likely data errors or edge cases)
-    X_train, y_train = remove_outliers(X_train, y_train, percentile=98)
+    X_train, y_train, X_dev, y_dev = load_or_prepare_data(train_path, dev_path)
     
     print(f"  train: {len(y_train):,} samples, mean duration: {y_train.mean():.0f}s")
     print(f"  dev:   {len(y_dev):,} samples, mean duration: {y_dev.mean():.0f}s")
