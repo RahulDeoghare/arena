@@ -209,7 +209,7 @@ def main() -> None:
     )
     t0 = time.time()
     xgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)],
-                  callbacks=[xgb.callback.EarlyStopping(rounds=50, save_best=True)])
+                  early_stopping_rounds=50, verbose=False)
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
     xgb_preds_dev = xgb_model.predict(X_dev)
