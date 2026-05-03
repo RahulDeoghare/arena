@@ -169,7 +169,8 @@ def main() -> None:
         metric='mae',
     )
     t0 = time.time()
-    lgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)], callbacks=[lgb.early_stopping(50)])
+    lgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)], 
+                  callbacks=[lgb.early_stopping(50), lgb.log_evaluation(period=100)])
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
     lgb_preds_dev = lgb_model.predict(X_dev)
@@ -185,10 +186,11 @@ def main() -> None:
         tree_method="hist",
         n_jobs=-1,
         random_state=42,
+        eval_metric='mae',
     )
     t0 = time.time()
     xgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)], 
-                  early_stopping_rounds=50, eval_metric='mae', verbose=False)
+                  callbacks=[xgb.callback.EarlyStopping(rounds=50, save_best=True)], verbose=True)
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
     xgb_preds_dev = xgb_model.predict(X_dev)
