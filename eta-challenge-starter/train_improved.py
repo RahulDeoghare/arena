@@ -178,9 +178,9 @@ def main() -> None:
     # ============ Model 2: XGBoost (tuned for better performance) ============
     print("\nTraining XGBoost model...", flush=True)
     xgb_model = xgb.XGBRegressor(
-        n_estimators=300,
-        max_depth=8,
-        learning_rate=0.1,
+        n_estimators=500,
+        max_depth=10,
+        learning_rate=0.05,
         subsample=0.85,
         colsample_bytree=0.85,
         tree_method="hist",
@@ -188,7 +188,9 @@ def main() -> None:
         random_state=42,
     )
     t0 = time.time()
-    xgb_model.fit(X_train, y_train)
+    xgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)],
+                  callbacks=[xgb.callback.EarlyStopping(rounds=50, save_best=True),
+                            xgb.callback.PrintEvaluation(period=50)])
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     
     xgb_preds_dev = xgb_model.predict(X_dev)
