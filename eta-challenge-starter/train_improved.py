@@ -26,7 +26,6 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 import xgboost as xgb
-from xgboost.callback import EarlyStopping
 import lightgbm as lgb
 from sklearn.preprocessing import StandardScaler
 
@@ -210,7 +209,6 @@ def main() -> None:
     )
     t0 = time.time()
     xgb_model.fit(X_train, y_train, eval_set=[(X_dev, y_dev)],
-                  callbacks=[EarlyStopping(rounds=50, metric_name='rmse')],
                   verbose=False)
     print(f"  trained in {time.time() - t0:.0f}s", flush=True)
     ##xgb early stopping fix
